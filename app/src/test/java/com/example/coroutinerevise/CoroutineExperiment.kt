@@ -6,7 +6,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
-import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.*
 
 class CoroutineExperiment {
     private val mainThreadSurrogate = newSingleThreadContext("Test Main")
@@ -30,6 +30,7 @@ class CoroutineExperiment {
         runBlocking(Dispatchers.Default, launchesFunction("Default"))
         runBlocking(Dispatchers.Unconfined, launchesFunction("Unconfined"))
         runBlocking(newSingleThreadContext("MyOwnThread"), launchesFunction("MyOwnThread"))
+        CoroutineExceptionHandler
     }
 
     private fun launchesFunction(message: String): suspend CoroutineScope.() -> Job? = {
@@ -65,5 +66,72 @@ class CoroutineExperiment {
 
     private fun printThread(message: String, coroutineContext: CoroutineContext) {
         println("$message : $coroutineContext:${Thread.currentThread()}")
+    }
+
+
+    @Test
+    fun testCoroutineName() {
+        runBlocking {
+            launch(CoroutineName("My-Own-Coroutine")) {
+                println(coroutineContext)
+            }
+        }
+    }
+
+    @Test
+    fun testCoroutineExceptionHandler() {
+        val handler = CoroutineExceptionHandler { _, exception ->
+            println("CoroutineExceptionHandler got $exception")
+        }
+
+        runBlocking {
+            MainScope().launch(handler) {
+                launch {
+                    throw IllegalAccessException("Just testing")
+                }
+            }.join()
+        }
+    }
+
+    @Test
+    fun testContinuationInterceptor() {
+        val interception = object : ContinuationInterceptor {
+            override val key: CoroutineContext.Key<*>
+                get() = ContinuationInterceptor
+
+            override fun <T> interceptContinuation(continuation: Continuation<T>): Continuation<T> {
+                println("  ## Interception Setup for ${continuation.context[Job]} ##")
+                return Continuation(continuation.context) {
+                    println("  ~~ Interception for ${continuation.context[Job]} ~~")
+                    continuation.resumeWith(it)
+                }
+            }
+        }
+
+        runBlocking(CoroutineName("runBlocker") + interception) {
+            println("Started runBlocking")
+            launch(CoroutineName("launcher")) {
+                println("Started launch")
+                delay(10)
+                println("End launch")
+            }
+            delay(10)
+            println("End runBlocking")
+        }
+    }
+
+    @Test
+    fun testSwitchContext() {
+        newSingleThreadContext("Ctx1").use { ctx1 ->
+            newSingleThreadContext("Ctx2").use { ctx2 ->
+                runBlocking(ctx1) {
+                    println("Started in ctx1 $coroutineContext")
+                    withContext(ctx2) {
+                            println("Working in ctx2 $coroutineContext")
+                    }
+                    println("Back to ctx1 $coroutineContext")
+                }
+            }
+        }
     }
 }
