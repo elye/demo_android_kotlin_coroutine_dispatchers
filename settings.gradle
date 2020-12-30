@@ -1,0 +1,2 @@
+rootProject.name = "CoroutineRevise"
+include ':app'
